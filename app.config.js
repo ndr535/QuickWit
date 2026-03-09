@@ -18,7 +18,7 @@ module.exports = {
     ios: {
       supportsTablet: false,
       bundleIdentifier: 'com.blueribbon.quickwit',
-      buildNumber: '4',
+      buildNumber: '6',
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
         // Prevents iPad split-screen / slide-over (same effect as requiresFullScreen).

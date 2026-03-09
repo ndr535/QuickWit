@@ -92,11 +92,11 @@ export default function RootLayout() {
         Animated.timing(logoOpacity, {
           toValue: 1,
           duration: 400,
-          useNativeDriver: true,
+          useNativeDriver: false,
         }),
         Animated.spring(logoScale, {
           toValue: 1,
-          useNativeDriver: true,
+          useNativeDriver: false,
           tension: 50,
           friction: 7,
         }),
@@ -105,7 +105,7 @@ export default function RootLayout() {
           Animated.timing(splashOpacity, {
             toValue: 0,
             duration: 350,
-            useNativeDriver: true,
+            useNativeDriver: false,
           }).start(() => setShowSplash(false));
         }, SPLASH_DURATION_MS - 400 - 350);
       });
