@@ -4,6 +4,7 @@
   },
   "build": {
     "production": {
+      "environment": "production",
       "ios": {
         "simulator": false
       }
