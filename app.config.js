@@ -47,9 +47,7 @@ module.exports = {
       eas: {
         projectId: 'fc6de65d-b549-489d-b8c4-df6deec5d4cb',
       },
-      elevenLabsApiKey: process.env.EXPO_PUBLIC_ELEVENLABS_API_KEY || '',
       elevenLabsVoiceId: process.env.EXPO_PUBLIC_ELEVENLABS_VOICE_ID || process.env.ELEVENLABS_VOICE_ID || '',
-      anthropicApiKey: process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY || '',
     },
   },
 };
