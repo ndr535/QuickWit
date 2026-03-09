@@ -1,8 +1,28 @@
-import { registerRootComponent } from 'expo';
+// Custom entry to avoid loading expo-router/_ctx.ios.js (which needs EXPO_ROUTER_APP_ROOT
+// inlined by Babel; when using babel-plugin-inline-dotenv that can break). We provide the
+// context ourselves so the app root is always correct.
+import '@expo/metro-runtime';
 
-import App from './App';
+import React from 'react';
+import { ExpoRoot } from 'expo-router/build/ExpoRoot';
+import { Head } from 'expo-router/build/head';
+import { renderRootComponent } from 'expo-router/build/renderRootComponent';
+import 'expo-router/build/fast-refresh';
 
-// registerRootComponent calls AppRegistry.registerComponent('main', () => App);
-// It also ensures that whether you load the app in Expo Go or in a native build,
-// the environment is set up appropriately
-registerRootComponent(App);
+// Same require.context as expo-router _ctx: app dir, recursive, route files only, sync.
+const ctx = require.context(
+  './app',
+  true,
+  /^(?:\.\/)(?!(?:(?:(?:.*\+api)|(?:\+html)|(?:\+middleware)))\.[tj]sx?$).*(?:\.android|\.web)?\.[tj]sx?$/,
+  'sync'
+);
+
+function App() {
+  return (
+    <Head.Provider>
+      <ExpoRoot context={ctx} />
+    </Head.Provider>
+  );
+}
+
+renderRootComponent(App);

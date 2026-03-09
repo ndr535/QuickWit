@@ -1,0 +1,1 @@
+This is a React Native Expo project using plain JavaScript (.js files), NOT TypeScript. Never use TypeScript syntax like as string, as any, as number, or type annotations. All files use .js extensions.
