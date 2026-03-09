@@ -74,8 +74,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { AuthProvider, useAuth } from './context/AuthContext';
-import { initializePurchases, logInUser } from '../services/purchases';
+import { AuthProvider } from './context/AuthContext';
 
 const SPLASH_DURATION_MS = 1400;
 
@@ -154,7 +153,6 @@ export default function RootLayout() {
   return (
     <RootErrorBoundary>
     <AuthProvider>
-      <PurchasesInitializer />
       <StatusBar style="light" />
       <Stack
         screenOptions={{
@@ -178,24 +176,6 @@ export default function RootLayout() {
     </AuthProvider>
     </RootErrorBoundary>
   );
-}
-
-function PurchasesInitializer() {
-  const { initialAuthChecked, user } = useAuth();
-  const didInit = useRef(false);
-
-  useEffect(() => {
-    if (!initialAuthChecked) return;
-    const userId = user?.id ?? null;
-    if (!didInit.current) {
-      didInit.current = true;
-      initializePurchases(userId);
-    } else if (userId) {
-      logInUser(userId);
-    }
-  }, [initialAuthChecked, user?.id]);
-
-  return null;
 }
 
 const styles = StyleSheet.create({

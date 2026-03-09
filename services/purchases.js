@@ -1,31 +1,61 @@
-let Purchases = null;
-try {
-  Purchases = require('react-native-purchases').default;
-} catch (e) {
-  console.warn('[QuickWit Purchases] react-native-purchases failed to load:', e?.message);
-}
-
 const ENTITLEMENT_ID = 'pro';
 
+let configured = false;
+
 /**
- * Initialize RevenueCat. Call after Supabase auth check on app load.
+ * Lazily get the Purchases module. Does not load at file scope.
+ * - Returns null if EXPO_PUBLIC_REVENUECAT_API_KEY is missing.
+ * - Then tries require('react-native-purchases'); returns null on failure.
+ * Never throws.
+ * @returns {object | null} Purchases module or null
+ */
+function getPurchasesModule() {
+  const apiKey = (process.env.EXPO_PUBLIC_REVENUECAT_API_KEY || '').trim();
+  if (!apiKey) return null;
+  try {
+    return require('react-native-purchases').default;
+  } catch (e) {
+    console.warn('[QuickWit Purchases] Module load: failed', e?.message);
+    return null;
+  }
+}
+
+/**
+ * Initialize RevenueCat. Call only when paywall is opened (deferred from cold launch).
  * If userId is provided (Supabase user), links the subscription to that account via Purchases.logIn().
+ * Idempotent: configure runs at most once per process.
  * @param {string} [userId] - Optional Supabase user id from supabase.auth.getUser()
  */
 export async function initializePurchases(userId) {
-  if (!Purchases) return;
+  console.warn('[QuickWit Purchases] RevenueCat init attempted');
   const apiKey = (process.env.EXPO_PUBLIC_REVENUECAT_API_KEY || '').trim();
-  if (!apiKey) {
-    console.warn('[QuickWit Purchases] EXPO_PUBLIC_REVENUECAT_API_KEY not set');
+  console.warn('[QuickWit Purchases] API key present:', apiKey ? 'yes' : 'no');
+  if (!apiKey) return;
+
+  const Purchases = getPurchasesModule();
+  if (!Purchases) {
+    console.warn('[QuickWit Purchases] Module load: failed (skipping configure)');
     return;
   }
-  try {
-    Purchases.configure({ apiKey });
-    if (userId && typeof userId === 'string' && userId.trim()) {
-      await Purchases.logIn(userId.trim());
+  console.warn('[QuickWit Purchases] Module load: success');
+
+  if (!configured) {
+    try {
+      Purchases.configure({ apiKey });
+      configured = true;
+      console.warn('[QuickWit Purchases] Configure: success');
+    } catch (e) {
+      console.warn('[QuickWit Purchases] Configure: failed', e?.message);
+      return;
     }
-  } catch (e) {
-    console.warn('[QuickWit Purchases] initializePurchases failed:', e?.message);
+  }
+
+  if (userId && typeof userId === 'string' && userId.trim()) {
+    try {
+      await Purchases.logIn(userId.trim());
+    } catch (e) {
+      console.warn('[QuickWit Purchases] logIn failed:', e?.message);
+    }
   }
 }
 
@@ -35,7 +65,10 @@ export async function initializePurchases(userId) {
  * @param {string} userId - Supabase user id
  */
 export async function logInUser(userId) {
-  if (!Purchases || !userId || typeof userId !== 'string' || !userId.trim()) return;
+  if (!userId || typeof userId !== 'string' || !userId.trim()) return;
+  if (!configured) return;
+  const Purchases = getPurchasesModule();
+  if (!Purchases) return;
   try {
     await Purchases.logIn(userId.trim());
   } catch (e) {
@@ -48,6 +81,8 @@ export async function logInUser(userId) {
  * On RevenueCat/network error, returns false (fail closed for entitlement check; gate will use session count or fail open).
  */
 export async function checkSubscriptionStatus() {
+  if (!configured) return false;
+  const Purchases = getPurchasesModule();
   if (!Purchases) return false;
   try {
     const customerInfo = await Purchases.getCustomerInfo();
@@ -64,7 +99,9 @@ export async function checkSubscriptionStatus() {
  * @returns {Promise<{ current: object | null, packages: object[], error: string | null }>}
  */
 export async function getOfferings() {
+  const Purchases = getPurchasesModule();
   if (!Purchases) return { current: null, packages: [], error: 'RevenueCat not available' };
+  if (!configured) return { current: null, packages: [], error: 'RevenueCat not initialized' };
   try {
     const offerings = await Purchases.getOfferings();
     const current = offerings?.current ?? null;
@@ -83,7 +120,10 @@ export async function getOfferings() {
  * @returns {Promise<boolean>}
  */
 export async function purchasePackage(pkg) {
-  if (!pkg || !Purchases) return false;
+  if (!pkg) return false;
+  if (!configured) return false;
+  const Purchases = getPurchasesModule();
+  if (!Purchases) return false;
   try {
     const result = await Purchases.purchasePackage(pkg);
     const customerInfo = result?.customerInfo;
@@ -100,6 +140,8 @@ export async function purchasePackage(pkg) {
  * Restore previous purchases. Returns true if user has pro entitlement after restore.
  */
 export async function restorePurchases() {
+  if (!configured) return false;
+  const Purchases = getPurchasesModule();
   if (!Purchases) return false;
   try {
     const customerInfo = await Purchases.restorePurchases();

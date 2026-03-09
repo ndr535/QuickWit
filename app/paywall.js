@@ -11,8 +11,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { getOfferings, purchasePackage, restorePurchases } from '../services/purchases';
+import { getOfferings, purchasePackage, restorePurchases, initializePurchases } from '../services/purchases';
 import GradientBackground from '../components/GradientBackground';
+import { useAuth } from './context/AuthContext';
 
 const COLORS = {
   background: '#1A1A2E',
@@ -31,6 +32,7 @@ const BENEFITS = [
 
 export default function PaywallScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [offeringsError, setOfferingsError] = useState(null);
   const [packages, setPackages] = useState([]);
@@ -43,6 +45,7 @@ export default function PaywallScreen() {
     setLoading(true);
     setOfferingsError(null);
     setMessage('');
+    await initializePurchases(user?.id ?? null);
     const { packages: pkgs, error } = await getOfferings();
     setPackages(pkgs || []);
     if (error) {
@@ -53,7 +56,7 @@ export default function PaywallScreen() {
       setDefaultPackage(pkg);
     }
     setLoading(false);
-  }, []);
+  }, [user?.id]);
 
   React.useEffect(() => {
     loadOfferings();
