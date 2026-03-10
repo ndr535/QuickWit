@@ -140,3 +140,6 @@ vite.config.ts.timestamp-*
 
 
 .expo/
+*.zip
+.DS_Store
+Crash Logs/
