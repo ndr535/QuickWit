@@ -131,6 +131,7 @@ export default function HomeScreen() {
   const [loadingStreak, setLoadingStreak] = useState(true);
   const [instructionExercise, setInstructionExercise] = useState(null);
   const [showConfetti, setShowConfetti] = useState(false);
+  const [sessionLaunchInProgress, setSessionLaunchInProgress] = useState(false);
 
   // Redirect to login if not signed in and not guest
   React.useEffect(() => {
@@ -143,6 +144,7 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
+      setSessionLaunchInProgress(false);
       const load = async () => {
         try {
           const progress = await getProgress();
@@ -168,14 +170,16 @@ export default function HomeScreen() {
   );
 
   const handleStartSession = useCallback(async () => {
+    if (sessionLaunchInProgress) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSessionLaunchInProgress(true);
     const randomIndex = Math.floor(Math.random() * EXERCISES.length);
     const exercise = EXERCISES[randomIndex];
     router.push({
       pathname: '/session',
       params: { type: exercise.id, exerciseType: exercise.id },
     });
-  }, [router]);
+  }, [router, sessionLaunchInProgress]);
 
   const handleExercisePress = useCallback((exercise) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -183,14 +187,15 @@ export default function HomeScreen() {
   }, []);
 
   const handleGotItGo = useCallback(async () => {
-    if (!instructionExercise) return;
+    if (!instructionExercise || sessionLaunchInProgress) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSessionLaunchInProgress(true);
     router.push({
       pathname: '/session',
       params: { type: instructionExercise.id, exerciseType: instructionExercise.id },
     });
     setInstructionExercise(null);
-  }, [instructionExercise, router]);
+  }, [instructionExercise, router, sessionLaunchInProgress]);
 
   const handleCloseInstruction = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -276,11 +281,13 @@ export default function HomeScreen() {
               </View>
 
               <Pressable
-                onPress={handleStartSession}
+                onPress={sessionLaunchInProgress ? undefined : handleStartSession}
                 style={({ pressed }) => [
                   styles.primaryButton,
-                  pressed && styles.primaryButtonPressed,
+                  pressed && !sessionLaunchInProgress && styles.primaryButtonPressed,
+                  sessionLaunchInProgress && styles.primaryButtonDisabled,
                 ]}
+                disabled={sessionLaunchInProgress}
               >
                 <Text style={styles.primaryButtonText} numberOfLines={1}>Start Session</Text>
                 <Ionicons name="arrow-forward" size={18} color={COLORS.text} />
@@ -412,9 +419,11 @@ export default function HomeScreen() {
                   <Pressable
                     style={({ pressed }) => [
                       styles.modalPrimaryButton,
-                      pressed && styles.primaryButtonPressed,
+                      pressed && !sessionLaunchInProgress && styles.primaryButtonPressed,
+                      sessionLaunchInProgress && styles.primaryButtonDisabled,
                     ]}
-                    onPress={handleGotItGo}
+                    onPress={sessionLaunchInProgress ? undefined : handleGotItGo}
+                    disabled={sessionLaunchInProgress}
                   >
                     <Text style={styles.primaryButtonText}>Got it, let's go</Text>
                     <Ionicons name="arrow-forward" size={18} color={COLORS.text} />
@@ -610,6 +619,9 @@ const styles = StyleSheet.create({
   primaryButtonPressed: {
     opacity: 0.85,
     transform: [{ scale: 0.98 }],
+  },
+  primaryButtonDisabled: {
+    opacity: 0.6,
   },
   primaryButtonText: {
     color: COLORS.text,

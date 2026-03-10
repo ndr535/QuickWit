@@ -6,6 +6,8 @@ import {
   ScrollView,
   Pressable,
   Switch,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -13,6 +15,8 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { getVoiceEnabled, setVoiceEnabled, getDifficulty, setDifficulty, DIFFICULTY_VALUES } from '../services/settings';
 import { checkSubscriptionStatus, restorePurchases } from '../services/purchases';
+import { supabase } from '../services/supabase';
+import { useAuth } from './context/AuthContext';
 import GradientBackground from '../components/GradientBackground';
 
 const COLORS = {
@@ -37,10 +41,13 @@ const DIFFICULTY_DESCRIPTIONS = {
 
 export default function SettingsScreen() {
   const router = useRouter();
+  const { signOut } = useAuth();
   const [voiceOn, setVoiceOn] = useState(true);
   const [difficulty, setDifficultyState] = useState('everyday');
   const [subStatus, setSubStatus] = useState('loading'); // 'loading' | 'pro' | 'free' | 'error'
   const [restoring, setRestoring] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -102,6 +109,70 @@ export default function SettingsScreen() {
       setRestoring(false);
     }
   }, [router]);
+
+  const handleLogout = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Alert.alert(
+      'Log Out',
+      'Are you sure you want to log out?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Log Out',
+          style: 'destructive',
+          onPress: async () => {
+            setLoggingOut(true);
+            try {
+              await signOut();
+              router.replace('/login');
+            } catch (_e) {
+              setLoggingOut(false);
+            }
+          },
+        },
+      ],
+    );
+  }, [signOut, router]);
+
+  const handleDeleteAccount = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Alert.alert(
+      'Delete Account',
+      'This will permanently delete your account and all data. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete My Account',
+          style: 'destructive',
+          onPress: async () => {
+            setDeletingAccount(true);
+            try {
+              const { data: sessionData } = await supabase.auth.getSession();
+              const token = sessionData?.session?.access_token;
+              if (!token) throw new Error('Not authenticated');
+              const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+              const res = await fetch(`${supabaseUrl}/functions/v1/delete-account`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`,
+                },
+              });
+              if (!res.ok) {
+                const body = await res.json().catch(() => ({}));
+                throw new Error(body?.error?.message || 'Deletion failed');
+              }
+              await signOut();
+              router.replace('/login');
+            } catch (err) {
+              setDeletingAccount(false);
+              Alert.alert('Error', err?.message || 'Could not delete account. Please try again or contact support.');
+            }
+          },
+        },
+      ],
+    );
+  }, [signOut, router]);
 
   return (
     <GradientBackground>
@@ -190,6 +261,52 @@ export default function SettingsScreen() {
                   {restoring ? 'Restoring…' : 'Restore Purchases'}
                 </Text>
                 <Ionicons name="refresh-outline" size={20} color={COLORS.accent} />
+              </Pressable>
+            </View>
+          </View>
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Account</Text>
+            <View style={styles.card}>
+              <Pressable
+                onPress={handleLogout}
+                disabled={loggingOut || deletingAccount}
+                style={({ pressed }) => [
+                  styles.difficultyRow,
+                  styles.difficultyRowBorder,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <View style={styles.rowIcon}>
+                  <Ionicons name="log-out-outline" size={22} color={COLORS.accent} />
+                </View>
+                <Text style={styles.accountActionLabel}>
+                  {loggingOut ? 'Logging out…' : 'Log Out'}
+                </Text>
+                {loggingOut ? (
+                  <ActivityIndicator size="small" color={COLORS.accent} />
+                ) : (
+                  <Ionicons name="chevron-forward" size={18} color={COLORS.muted} />
+                )}
+              </Pressable>
+              <Pressable
+                onPress={handleDeleteAccount}
+                disabled={loggingOut || deletingAccount}
+                style={({ pressed }) => [
+                  styles.difficultyRow,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <View style={styles.rowIcon}>
+                  <Ionicons name="trash-outline" size={22} color="#FF6B6B" />
+                </View>
+                <Text style={[styles.accountActionLabel, styles.deleteLabel]}>
+                  {deletingAccount ? 'Deleting account…' : 'Delete Account'}
+                </Text>
+                {deletingAccount ? (
+                  <ActivityIndicator size="small" color="#FF6B6B" />
+                ) : (
+                  <Ionicons name="chevron-forward" size={18} color={COLORS.muted} />
+                )}
               </Pressable>
             </View>
           </View>
@@ -299,5 +416,15 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '500',
     flex: 1,
+  },
+  accountActionLabel: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: '500',
+    flex: 1,
+    marginLeft: 14,
+  },
+  deleteLabel: {
+    color: '#FF6B6B',
   },
 });

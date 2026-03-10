@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -10,9 +10,10 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { generatePrompt, evaluateResponse, generateSpeedRoundsQuestions, generateHecklerScenario } from '../services/ai';
@@ -22,6 +23,7 @@ import {
   speakText,
   stopSpeaking,
   getRecordingMetering,
+  requestMicPermission,
 } from '../services/speech';
 import { getVoiceEnabled } from '../services/settings';
 import { updateProgress, getSessionCount, incrementSessionCount } from '../services/progress';
@@ -131,6 +133,11 @@ export default function SessionScreen() {
   // Paywall gate: allow if pro, or session count < FREE_SESSION_LIMIT (then increment). Fail open on RevenueCat/errors.
   const [gateState, setGateState] = useState('checking');
   const gateChecked = useRef(false);
+  const isScreenActiveRef = useRef(true);
+
+  // Mic permission preflight: 'checking' until gate passes, then 'granted' or 'denied'.
+  const [permissionState, setPermissionState] = useState('checking');
+  const canAskMicAgainRef = useRef(true);
 
   useEffect(() => {
     if (gateChecked.current) return;
@@ -248,6 +255,7 @@ export default function SessionScreen() {
   };
 
   const autoStartRound = async (maxSec, hardCutoff) => {
+    if (!isScreenActiveRef.current) return;
     roundLock.current = false;
     // Show recording UI immediately so there's no visible gap after narration ends.
     // Actual mic setup (~600ms) happens below; we revert if it fails.
@@ -259,6 +267,7 @@ export default function SessionScreen() {
     setSubmitError(null);
 
     const result = await speechStartRecording();
+    if (!isScreenActiveRef.current) return;
     if (!result.success) {
       setIsRecording(false);
       setAutoRecording(false);
@@ -268,12 +277,14 @@ export default function SessionScreen() {
     }
 
     // Countdown
+    if (!isScreenActiveRef.current) return;
     timerRef.current = setInterval(() => {
+      if (!isScreenActiveRef.current) return;
       setRoundTimer((t) => {
         if (t <= 1) {
           clearInterval(timerRef.current);
           timerRef.current = null;
-          if (hardCutoff) autoFinishRound();
+          if (hardCutoff && isScreenActiveRef.current) autoFinishRound();
           return 0;
         }
         return t - 1;
@@ -296,6 +307,7 @@ export default function SessionScreen() {
     const SPEECH_CONSECUTIVE = 2;
     const SILENCE_TICKS = 5;
     silenceRef.current = setInterval(async () => {
+      if (!isScreenActiveRef.current) return;
       if (warmupTicks < WARMUP_TICKS) {
         warmupTicks++;
         return;
@@ -314,7 +326,7 @@ export default function SessionScreen() {
           if (silentTicks >= SILENCE_TICKS) {
             clearInterval(silenceRef.current);
             silenceRef.current = null;
-            autoFinishRound();
+            if (isScreenActiveRef.current) autoFinishRound();
           }
         }
       }
@@ -323,6 +335,7 @@ export default function SessionScreen() {
 
   const autoFinishRound = async () => {
     if (roundLock.current) return;
+    if (!isScreenActiveRef.current) return;
     roundLock.current = true;
 
     // Special two-phase flow for Heckler: initial speech then recovery.
@@ -341,10 +354,12 @@ export default function SessionScreen() {
         } catch (e) {
           console.warn('[QuickWit] autoFinishRound (Heckler initial): stopRecording failed', e);
         }
+        if (!isScreenActiveRef.current) return;
         setIsTranscribing(false);
 
         const heckle = currentHeckleRef.current || 'Can you get to the point?';
         const voiceOn = await getVoiceEnabled();
+        if (!isScreenActiveRef.current) return;
         if (voiceOn && heckle) {
           setIsSpeaking(true);
           await speakWithTimeout(heckle, estimateSpeakTimeout(heckle));
@@ -352,6 +367,7 @@ export default function SessionScreen() {
         }
 
         // Start recovery recording with a soft cutoff (silence detection ends round).
+        if (!isScreenActiveRef.current) return;
         hecklerPhaseRef.current = 'recovery';
         roundLock.current = false;
         await autoStartRound(30, false);
@@ -372,6 +388,7 @@ export default function SessionScreen() {
       } catch (e) {
         console.warn('[QuickWit] autoFinishRound (Heckler recovery): stopRecording failed', e);
       }
+      if (!isScreenActiveRef.current) return;
       setIsTranscribing(false);
 
       const currentRound = roundRef.current;
@@ -401,6 +418,7 @@ export default function SessionScreen() {
             combinedPrompt,
             combinedRecoveries,
           );
+          if (!isScreenActiveRef.current) return;
           await updateProgress({ exerciseType: 'heckler', overallScore: evaluation.overallScore });
           router.replace({
             pathname: '/results',
@@ -416,14 +434,15 @@ export default function SessionScreen() {
             },
           });
         } catch (err) {
-          setSubmitError('Could not get coaching. Check your connection and try again.');
+          if (isScreenActiveRef.current) setSubmitError('Could not get coaching. Check your connection and try again.');
         } finally {
-          setIsSubmitting(false);
+          if (isScreenActiveRef.current) setIsSubmitting(false);
         }
         return;
       }
 
       // Move to the next Heckler round.
+      if (!isScreenActiveRef.current) return;
       hecklerPhaseRef.current = 'initial';
       const nextRound = currentRound + 1;
       roundRef.current = nextRound;
@@ -447,6 +466,7 @@ export default function SessionScreen() {
     } catch (e) {
       console.warn('[QuickWit] autoFinishRound: stopRecording failed', e);
     }
+    if (!isScreenActiveRef.current) return;
     setIsTranscribing(false);
 
     const currentRound = roundRef.current;
@@ -459,7 +479,7 @@ export default function SessionScreen() {
       { prompt: currentQ, response: transcript || '(no response)' },
     ];
     allResponsesRef.current = updatedResponses;
-    setAllResponses(updatedResponses);
+    if (isScreenActiveRef.current) setAllResponses(updatedResponses);
 
     if (currentRound >= totalRoundsRef.current) {
       // Evaluate all responses together
@@ -469,6 +489,7 @@ export default function SessionScreen() {
       const combinedResponse = updatedResponses
         .map((r, i) => `${i + 1}. ${r.response}`)
         .join('\n');
+      if (!isScreenActiveRef.current) return;
       setIsSubmitting(true);
       try {
         const evaluation = await evaluateResponse(
@@ -476,6 +497,7 @@ export default function SessionScreen() {
           combinedPrompt,
           combinedResponse,
         );
+        if (!isScreenActiveRef.current) return;
         await updateProgress({ exerciseType: exerciseTypeRef.current, overallScore: evaluation.overallScore });
         router.replace({
           pathname: '/results',
@@ -491,13 +513,14 @@ export default function SessionScreen() {
           },
         });
       } catch (err) {
-        setSubmitError('Could not get coaching. Check your connection and try again.');
-        setIsSubmitting(false);
+        if (isScreenActiveRef.current) setSubmitError('Could not get coaching. Check your connection and try again.');
+        if (isScreenActiveRef.current) setIsSubmitting(false);
       }
       return;
     }
 
     // Advance to next round
+    if (!isScreenActiveRef.current) return;
     const nextRound = currentRound + 1;
     roundRef.current = nextRound;
     setRound(nextRound);
@@ -505,21 +528,25 @@ export default function SessionScreen() {
   };
 
   const startHecklerInitialPhase = async () => {
+    if (!isScreenActiveRef.current) return;
     hecklerPhaseRef.current = 'initial';
     const hecklerInitialSec = 8 + Math.floor(Math.random() * 8); // 8–15 seconds
     await autoStartRound(hecklerInitialSec, true);
   };
 
   const startNextRound = async (newRound) => {
+    if (!isScreenActiveRef.current) return;
     if (isSpeedRounds) {
       const nextQ = speedQuestionsRef.current[newRound - 1] || getPlaceholderPrompt('speed-rounds', newRound);
       setPromptText(nextQ);
       const voiceOn = await getVoiceEnabled();
+      if (!isScreenActiveRef.current) return;
       if (voiceOn && nextQ) {
         setIsSpeaking(true);
         await speakWithTimeout(nextQ, estimateSpeakTimeout(nextQ));
         setIsSpeaking(false);
       }
+      if (!isScreenActiveRef.current) return;
       await autoStartRound(15, true);
     } else if (isHotTake) {
       setIsPromptLoading(true);
@@ -529,17 +556,20 @@ export default function SessionScreen() {
       } catch (e) {
         topic = getPlaceholderPrompt('hot-take', newRound);
       }
+      if (!isScreenActiveRef.current) return;
       const topicText = (topic && topic.trim()) || getPlaceholderPrompt('hot-take', newRound);
       usedHotTakeTopicsRef.current = [...usedHotTakeTopicsRef.current, topicText];
       setIsPromptLoading(false);
       setPromptText(topicText);
       topic = topicText;
       const voiceOn = await getVoiceEnabled();
+      if (!isScreenActiveRef.current) return;
       if (voiceOn && topic) {
         setIsSpeaking(true);
         await speakWithTimeout(topic, estimateSpeakTimeout(topic));
         setIsSpeaking(false);
       }
+      if (!isScreenActiveRef.current) return;
       await autoStartRound(15, false);
     } else if (isQuickDraw) {
       setIsPromptLoading(true);
@@ -549,16 +579,19 @@ export default function SessionScreen() {
       } catch (e) {
         scenario = getPlaceholderPrompt('quick-draw', newRound);
       }
+      if (!isScreenActiveRef.current) return;
       const scenarioText = (scenario && scenario.trim()) || getPlaceholderPrompt('quick-draw', newRound);
       usedQuickDrawSettingsRef.current = [...usedQuickDrawSettingsRef.current, scenarioText];
       setIsPromptLoading(false);
       setPromptText(scenarioText);
       const voiceOn = await getVoiceEnabled();
+      if (!isScreenActiveRef.current) return;
       if (voiceOn && scenarioText) {
         setIsSpeaking(true);
         await speakWithTimeout(scenarioText, estimateSpeakTimeout(scenarioText));
         setIsSpeaking(false);
       }
+      if (!isScreenActiveRef.current) return;
       await autoStartRound(10, true);
     } else if (isHeckler) {
       setIsPromptLoading(true);
@@ -566,6 +599,7 @@ export default function SessionScreen() {
         const { scenario, heckle } = await generateHecklerScenario({
           usedScenarios: usedHecklerScenariosRef.current,
         });
+        if (!isScreenActiveRef.current) return;
         const scenarioText = (scenario && scenario.trim()) || getPlaceholderPrompt('quick-draw', newRound);
         const heckleText = (heckle && heckle.trim()) || 'Can you get to the point?';
         usedHecklerScenariosRef.current = [...usedHecklerScenariosRef.current, scenarioText];
@@ -574,19 +608,23 @@ export default function SessionScreen() {
         setIsPromptLoading(false);
         setPromptText(scenarioText);
         const voiceOn = await getVoiceEnabled();
+        if (!isScreenActiveRef.current) return;
         if (voiceOn && scenarioText) {
           setIsSpeaking(true);
           await speakWithTimeout(scenarioText, estimateSpeakTimeout(scenarioText));
           setIsSpeaking(false);
         }
+        if (!isScreenActiveRef.current) return;
         await startHecklerInitialPhase();
       } catch (e) {
-        setIsPromptLoading(false);
-        const fallbackScenario = getPlaceholderPrompt('quick-draw', newRound);
-        currentHecklerScenarioRef.current = fallbackScenario;
-        currentHeckleRef.current = 'Can you get to the point?';
-        setPromptText(fallbackScenario);
-        await startHecklerInitialPhase();
+        if (isScreenActiveRef.current) {
+          setIsPromptLoading(false);
+          const fallbackScenario = getPlaceholderPrompt('quick-draw', newRound);
+          currentHecklerScenarioRef.current = fallbackScenario;
+          currentHeckleRef.current = 'Can you get to the point?';
+          setPromptText(fallbackScenario);
+          await startHecklerInitialPhase();
+        }
       }
     }
   };
@@ -594,6 +632,7 @@ export default function SessionScreen() {
   // ─── Load initial prompt ─────────────────────────────────────────────────────
 
   const loadPrompt = async () => {
+    if (!isScreenActiveRef.current) return;
     setPromptError(null);
     setIsPromptLoading(true);
     setMicPermissionDenied(false);
@@ -603,6 +642,7 @@ export default function SessionScreen() {
     try {
       if (isSpeedRounds) {
         const questions = await generateSpeedRoundsQuestions();
+        if (!isScreenActiveRef.current) return;
         speedQuestionsRef.current = questions;
         setSpeedQuestions(questions);
         const firstQ = questions[0] || getPlaceholderPrompt('speed-rounds', 1);
@@ -610,28 +650,33 @@ export default function SessionScreen() {
         lastSpokenPromptRef.current = firstQ;
         setIsPromptLoading(false);
         const voiceOn = await getVoiceEnabled();
+        if (!isScreenActiveRef.current) return;
         if (voiceOn) {
           setIsSpeaking(true);
           await speakWithTimeout(firstQ, estimateSpeakTimeout(firstQ));
           setIsSpeaking(false);
         }
+        if (!isScreenActiveRef.current) return;
         await autoStartRound(15, true);
         return;
       }
 
       if (isHotTake) {
         const topic = await generatePrompt('hot-take', { usedTopics: usedHotTakeTopicsRef.current });
+        if (!isScreenActiveRef.current) return;
         const topicText = (topic && topic.trim()) || getPlaceholderPrompt('hot-take', 1);
         usedHotTakeTopicsRef.current = [...usedHotTakeTopicsRef.current, topicText];
         setPromptText(topicText);
         lastSpokenPromptRef.current = topicText;
         setIsPromptLoading(false);
         const voiceOn = await getVoiceEnabled();
+        if (!isScreenActiveRef.current) return;
         if (voiceOn) {
           setIsSpeaking(true);
           await speakWithTimeout(topicText, estimateSpeakTimeout(topicText));
           setIsSpeaking(false);
         }
+        if (!isScreenActiveRef.current) return;
         await autoStartRound(15, false);
         return;
       }
@@ -640,6 +685,7 @@ export default function SessionScreen() {
         const { scenario, heckle } = await generateHecklerScenario({
           usedScenarios: usedHecklerScenariosRef.current,
         });
+        if (!isScreenActiveRef.current) return;
         const scenarioText = (scenario && scenario.trim()) || getPlaceholderPrompt('quick-draw', 1);
         const heckleText = (heckle && heckle.trim()) || 'Can you get to the point?';
         usedHecklerScenariosRef.current = [...usedHecklerScenariosRef.current, scenarioText];
@@ -649,34 +695,40 @@ export default function SessionScreen() {
         lastSpokenPromptRef.current = scenarioText;
         setIsPromptLoading(false);
         const voiceOn = await getVoiceEnabled();
+        if (!isScreenActiveRef.current) return;
         if (voiceOn) {
           setIsSpeaking(true);
           await speakWithTimeout(scenarioText, estimateSpeakTimeout(scenarioText));
           setIsSpeaking(false);
         }
+        if (!isScreenActiveRef.current) return;
         await startHecklerInitialPhase();
         return;
       }
 
       if (isQuickDraw) {
         const scenario = await generatePrompt('quick-draw', { usedSettings: usedQuickDrawSettingsRef.current });
+        if (!isScreenActiveRef.current) return;
         const scenarioText = (scenario && scenario.trim()) || getPlaceholderPrompt('quick-draw', 1);
         usedQuickDrawSettingsRef.current = [...usedQuickDrawSettingsRef.current, scenarioText];
         setPromptText(scenarioText);
         lastSpokenPromptRef.current = scenarioText;
         setIsPromptLoading(false);
         const voiceOn = await getVoiceEnabled();
+        if (!isScreenActiveRef.current) return;
         if (voiceOn) {
           setIsSpeaking(true);
           await speakWithTimeout(scenarioText, estimateSpeakTimeout(scenarioText));
           setIsSpeaking(false);
         }
+        if (!isScreenActiveRef.current) return;
         await autoStartRound(10, true);
         return;
       }
 
       if (isReframe) {
         const text = await generatePrompt('reframe');
+        if (!isScreenActiveRef.current) return;
         const textToShow = (text && text.trim()) ? text.trim() : getPlaceholderPrompt('reframe', 1);
         setPromptText(textToShow);
         setIsPromptLoading(false);
@@ -684,28 +736,55 @@ export default function SessionScreen() {
       }
 
       const text = await generatePrompt(exerciseTypeParam || 'unknown');
+      if (!isScreenActiveRef.current) return;
       const textToShow = (text && text.trim()) ? text.trim() : getPlaceholderPrompt(exerciseTypeParam, round);
       setPromptText(textToShow);
       setIsPromptLoading(false);
     } catch (error) {
-      setPromptError('Could not reach your improv coach. Tap retry to load a new prompt.');
-      const fallbackText = getPlaceholderPrompt(exerciseTypeParam, round);
-      setPromptText(fallbackText);
-      setIsPromptLoading(false);
+      if (isScreenActiveRef.current) {
+        setPromptError('Could not reach your improv coach. Tap retry to load a new prompt.');
+        const fallbackText = getPlaceholderPrompt(exerciseTypeParam, round);
+        setPromptText(fallbackText);
+        setIsPromptLoading(false);
+      }
     }
   };
 
+  // Preflight: request mic permission as soon as gate allows, before any session startup.
   useEffect(() => {
+    if (gateState !== 'allowed') return;
+    let cancelled = false;
+    requestMicPermission().then(({ granted, canAskAgain }) => {
+      if (cancelled) return;
+      canAskMicAgainRef.current = canAskAgain;
+      setPermissionState(granted ? 'granted' : 'denied');
+    });
+    return () => { cancelled = true; };
+  }, [gateState]);
+
+  useEffect(() => {
+    if (gateState !== 'allowed' || permissionState !== 'granted') return;
     loadPrompt();
     return () => {
       clearTimers();
       stopSpeaking();
-      // Stop any active recording so it doesn't block future sessions with
-      // "Only one Recording object can be prepared at a given time".
       speechStopRecording().catch(() => {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [gateState, permissionState]);
+
+  // Clean up narration/playback when session screen loses focus or unmounts (Expo AV stopAsync + unloadAsync via stopSpeaking).
+  useFocusEffect(
+    useCallback(() => {
+      isScreenActiveRef.current = true;
+      return () => {
+        isScreenActiveRef.current = false;
+        clearTimers();
+        stopSpeaking();
+        speechStopRecording().catch(() => {});
+      };
+    }, []),
+  );
 
   // TTS for manual exercises (Quick Draw, New Choice, Reframe, Daily)
   useEffect(() => {
@@ -805,12 +884,14 @@ export default function SessionScreen() {
     try {
       result = await stopWithTimeout();
     } catch (e) {
-      setIsTranscribing(false);
-      setSubmitError(
-        e?.message === 'TRANSCRIBE_TIMEOUT'
-          ? 'Transcription took too long. Try again or use Type instead.'
-          : 'Something went wrong. Try again or use Type instead.',
-      );
+      if (isScreenActiveRef.current) {
+        setIsTranscribing(false);
+        setSubmitError(
+          e?.message === 'TRANSCRIBE_TIMEOUT'
+            ? 'Transcription took too long. Try again or use Type instead.'
+            : 'Something went wrong. Try again or use Type instead.',
+        );
+      }
       return;
     }
 
@@ -869,9 +950,9 @@ export default function SessionScreen() {
             },
           });
         } catch (err) {
-          setSubmitError('Could not get coaching. Try again or use Type instead.');
+          if (isScreenActiveRef.current) setSubmitError('Could not get coaching. Try again or use Type instead.');
         } finally {
-          setIsSubmitting(false);
+          if (isScreenActiveRef.current) setIsSubmitting(false);
         }
         return;
       }
@@ -886,9 +967,9 @@ export default function SessionScreen() {
         const textToShow = (nextText && nextText.trim()) ? nextText.trim() : getPlaceholderPrompt('reframe', nextRound);
         setPromptText(textToShow);
       } catch (_e) {
-        setPromptText(getPlaceholderPrompt('reframe', nextRound));
+        if (isScreenActiveRef.current) setPromptText(getPlaceholderPrompt('reframe', nextRound));
       } finally {
-        setIsPromptLoading(false);
+        if (isScreenActiveRef.current) setIsPromptLoading(false);
       }
       return;
     }
@@ -913,9 +994,9 @@ export default function SessionScreen() {
         },
       });
     } catch (err) {
-      setSubmitError('Could not get coaching. Try again or use Type instead.');
+      if (isScreenActiveRef.current) setSubmitError('Could not get coaching. Try again or use Type instead.');
     } finally {
-      setIsSubmitting(false);
+      if (isScreenActiveRef.current) setIsSubmitting(false);
     }
   };
 
@@ -965,9 +1046,9 @@ export default function SessionScreen() {
             },
           });
         } catch (err) {
-          setSubmitError('Your coach had trouble scoring that response. Check your connection and try again.');
+          if (isScreenActiveRef.current) setSubmitError('Your coach had trouble scoring that response. Check your connection and try again.');
         } finally {
-          setIsSubmitting(false);
+          if (isScreenActiveRef.current) setIsSubmitting(false);
         }
         return;
       }
@@ -983,9 +1064,9 @@ export default function SessionScreen() {
         const textToShow = (nextText && nextText.trim()) ? nextText.trim() : getPlaceholderPrompt('reframe', nextRound);
         setPromptText(textToShow);
       } catch (_e) {
-        setPromptText(getPlaceholderPrompt('reframe', nextRound));
+        if (isScreenActiveRef.current) setPromptText(getPlaceholderPrompt('reframe', nextRound));
       } finally {
-        setIsPromptLoading(false);
+        if (isScreenActiveRef.current) setIsPromptLoading(false);
       }
       return;
     }
@@ -1008,15 +1089,24 @@ export default function SessionScreen() {
         },
       });
     } catch (error) {
-      setSubmitError('Your coach had trouble scoring that response. Check your connection and try again.');
+      if (isScreenActiveRef.current) setSubmitError('Your coach had trouble scoring that response. Check your connection and try again.');
     } finally {
-      setIsSubmitting(false);
+      if (isScreenActiveRef.current) setIsSubmitting(false);
     }
   };
 
   useEffect(() => {
     if (gateState === 'paywall') {
-      router.replace('/paywall');
+      isScreenActiveRef.current = false;
+      clearTimers();
+      stopSpeaking();
+      setIsSpeaking(false);
+      setIsRecording(false);
+      setAutoRecording(false);
+      setIsTranscribing(false);
+      speechStopRecording().catch(() => {}).then(() => {
+        router.replace('/paywall');
+      });
     }
   }, [gateState, router]);
 
@@ -1024,7 +1114,7 @@ export default function SessionScreen() {
 
   const showRoundCount = isHeckler || isSpeedRounds || isHotTake || isReframe;
 
-  if (gateState === 'checking' || gateState === 'paywall') {
+  if (gateState === 'checking' || gateState === 'paywall' || (gateState === 'allowed' && permissionState === 'checking')) {
     return (
       <GradientBackground>
         <View style={styles.container}>
@@ -1035,6 +1125,47 @@ export default function SessionScreen() {
             </Text>
           </View>
         </View>
+      </GradientBackground>
+    );
+  }
+
+  if (gateState === 'allowed' && permissionState === 'denied') {
+    return (
+      <GradientBackground>
+        <SafeAreaView edges={['top', 'bottom']} style={styles.safeArea}>
+          <View style={styles.micBlockedWrap}>
+            <Ionicons name="mic-off-outline" size={56} color={COLORS.accent} style={{ marginBottom: 20 }} />
+            <Text style={styles.micBlockedTitle}>Microphone Access Required</Text>
+            <Text style={styles.micBlockedBody}>
+              QuickWit needs microphone access to record your responses during sessions.
+            </Text>
+            {canAskMicAgainRef.current ? (
+              <Pressable
+                onPress={() => {
+                  requestMicPermission().then(({ granted, canAskAgain }) => {
+                    canAskMicAgainRef.current = canAskAgain;
+                    setPermissionState(granted ? 'granted' : 'denied');
+                  });
+                }}
+                style={styles.micBlockedBtn}
+              >
+                <Text style={styles.micBlockedBtnText}>Enable Microphone</Text>
+              </Pressable>
+            ) : null}
+            <Pressable
+              onPress={() => Linking.openSettings()}
+              style={[styles.micBlockedBtn, styles.micBlockedBtnSecondary]}
+            >
+              <Text style={styles.micBlockedBtnTextSecondary}>Open Settings</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => router.back()}
+              style={styles.micBlockedBack}
+            >
+              <Text style={styles.micBlockedBackText}>Go Back</Text>
+            </Pressable>
+          </View>
+        </SafeAreaView>
       </GradientBackground>
     );
   }
@@ -1301,6 +1432,59 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   gateLoadingText: {
+    color: COLORS.muted,
+    fontSize: 15,
+  },
+  micBlockedWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+    gap: 0,
+  },
+  micBlockedTitle: {
+    color: COLORS.text,
+    fontSize: 22,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  micBlockedBody: {
+    color: COLORS.muted,
+    fontSize: 15,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 32,
+  },
+  micBlockedBtn: {
+    backgroundColor: COLORS.accent,
+    borderRadius: 999,
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: 12,
+  },
+  micBlockedBtnText: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  micBlockedBtnSecondary: {
+    backgroundColor: 'transparent',
+    borderWidth: 1.5,
+    borderColor: COLORS.muted,
+  },
+  micBlockedBtnTextSecondary: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  micBlockedBack: {
+    marginTop: 8,
+    paddingVertical: 12,
+  },
+  micBlockedBackText: {
     color: COLORS.muted,
     fontSize: 15,
   },

@@ -1,19 +1,15 @@
-const ENTITLEMENT_ID = 'pro';
+// RevenueCat is loaded lazily (never at module scope) to prevent cold-launch crashes.
+// All exported functions return safe defaults if the native module is unavailable
+// or if initializePurchases() has not been called yet.
 
 let configured = false;
 
-/**
- * Lazily get the Purchases module. Does not load at file scope.
- * - Returns null if EXPO_PUBLIC_REVENUECAT_API_KEY is missing.
- * - Then tries require('react-native-purchases'); returns null on failure.
- * Never throws.
- * @returns {object | null} Purchases module or null
- */
 function getPurchasesModule() {
-  const apiKey = (process.env.EXPO_PUBLIC_REVENUECAT_API_KEY || '').trim();
+  const apiKey = process.env.EXPO_PUBLIC_REVENUECAT_API_KEY;
   if (!apiKey) return null;
   try {
-    return require('react-native-purchases').default;
+    const mod = require('react-native-purchases');
+    return mod.default || mod;
   } catch (e) {
     console.warn('[QuickWit Purchases] Module load: failed', e?.message);
     return null;
@@ -21,134 +17,120 @@ function getPurchasesModule() {
 }
 
 /**
- * Initialize RevenueCat. Call only when paywall is opened (deferred from cold launch).
- * If userId is provided (Supabase user), links the subscription to that account via Purchases.logIn().
- * Idempotent: configure runs at most once per process.
- * @param {string} [userId] - Optional Supabase user id from supabase.auth.getUser()
+ * Must be called (from paywall screen) before any other purchases function.
+ * Safe to call multiple times — idempotent after first successful configure.
  */
 export async function initializePurchases(userId) {
   console.warn('[QuickWit Purchases] RevenueCat init attempted');
-  const apiKey = (process.env.EXPO_PUBLIC_REVENUECAT_API_KEY || '').trim();
+  const apiKey = process.env.EXPO_PUBLIC_REVENUECAT_API_KEY;
   console.warn('[QuickWit Purchases] API key present:', apiKey ? 'yes' : 'no');
-  if (!apiKey) return;
+  if (!apiKey) return false;
 
   const Purchases = getPurchasesModule();
   if (!Purchases) {
     console.warn('[QuickWit Purchases] Module load: failed (skipping configure)');
-    return;
+    return false;
   }
   console.warn('[QuickWit Purchases] Module load: success');
 
-  if (!configured) {
-    try {
-      Purchases.configure({ apiKey });
-      configured = true;
-      console.warn('[QuickWit Purchases] Configure: success');
-    } catch (e) {
-      console.warn('[QuickWit Purchases] Configure: failed', e?.message);
-      return;
+  if (configured) {
+    if (userId) {
+      try { await Purchases.logIn(String(userId)); } catch (_e) {}
     }
+    return true;
   }
 
-  if (userId && typeof userId === 'string' && userId.trim()) {
-    try {
-      await Purchases.logIn(userId.trim());
-    } catch (e) {
-      console.warn('[QuickWit Purchases] logIn failed:', e?.message);
-    }
-  }
-}
-
-/**
- * Link RevenueCat to the given user id. Call when user logs in after initial app load.
- * No-op if RevenueCat failed to load or is not configured.
- * @param {string} userId - Supabase user id
- */
-export async function logInUser(userId) {
-  if (!userId || typeof userId !== 'string' || !userId.trim()) return;
-  if (!configured) return;
-  const Purchases = getPurchasesModule();
-  if (!Purchases) return;
   try {
-    await Purchases.logIn(userId.trim());
+    Purchases.configure({ apiKey, appUserID: userId ? String(userId) : undefined });
+    configured = true;
+    console.warn('[QuickWit Purchases] Configure: success');
+    if (userId) {
+      try { await Purchases.logIn(String(userId)); } catch (_e) {}
+    }
+    return true;
   } catch (e) {
-    console.warn('[QuickWit Purchases] logIn failed:', e?.message);
+    console.warn('[QuickWit Purchases] Configure: failed', e?.message);
+    return false;
   }
 }
 
-/**
- * Returns true if the user has an active 'pro' entitlement.
- * On RevenueCat/network error, returns false (fail closed for entitlement check; gate will use session count or fail open).
- */
 export async function checkSubscriptionStatus() {
   if (!configured) return false;
   const Purchases = getPurchasesModule();
   if (!Purchases) return false;
   try {
-    const customerInfo = await Purchases.getCustomerInfo();
-    const pro = customerInfo?.entitlements?.active?.[ENTITLEMENT_ID];
-    return !!(pro && pro.isActive);
-  } catch (e) {
-    console.warn('[QuickWit Purchases] checkSubscriptionStatus failed:', e?.message);
+    const info = await Purchases.getCustomerInfo();
+    return info?.entitlements?.active?.['pro'] != null;
+  } catch (_e) {
     return false;
   }
 }
 
-/**
- * Fetches available offerings and packages from RevenueCat.
- * @returns {Promise<{ current: object | null, packages: object[], error: string | null }>}
- */
 export async function getOfferings() {
+  if (!configured) {
+    return { current: null, packages: [], error: 'RevenueCat not initialized' };
+  }
   const Purchases = getPurchasesModule();
-  if (!Purchases) return { current: null, packages: [], error: 'RevenueCat not available' };
-  if (!configured) return { current: null, packages: [], error: 'RevenueCat not initialized' };
+  if (!Purchases) {
+    return { current: null, packages: [], error: 'RevenueCat not available' };
+  }
   try {
     const offerings = await Purchases.getOfferings();
     const current = offerings?.current ?? null;
     const packages = current?.availablePackages ?? [];
     return { current, packages, error: null };
   } catch (e) {
-    const message = e?.message || 'Failed to load offerings';
-    console.warn('[QuickWit Purchases] getOfferings failed:', message);
-    return { current: null, packages: [], error: message };
+    return { current: null, packages: [], error: e?.message || 'Failed to load offerings' };
   }
 }
 
-/**
- * Purchase a package. Returns true if purchase succeeded.
- * @param {object} pkg - RevenueCat package from getOfferings().packages
- * @returns {Promise<boolean>}
- */
 export async function purchasePackage(pkg) {
-  if (!pkg) return false;
   if (!configured) return false;
   const Purchases = getPurchasesModule();
   if (!Purchases) return false;
   try {
     const result = await Purchases.purchasePackage(pkg);
-    const customerInfo = result?.customerInfo;
-    const pro = customerInfo?.entitlements?.active?.[ENTITLEMENT_ID];
-    return !!(pro && pro.isActive);
+    return result?.customerInfo?.entitlements?.active?.['pro'] != null;
   } catch (e) {
-    if (e?.userCancelled) return false;
+    if (e?.code === 'USER_CANCELLED' || e?.userCancelled) return false;
     console.warn('[QuickWit Purchases] purchasePackage failed:', e?.message);
     return false;
   }
 }
 
-/**
- * Restore previous purchases. Returns true if user has pro entitlement after restore.
- */
 export async function restorePurchases() {
   if (!configured) return false;
   const Purchases = getPurchasesModule();
   if (!Purchases) return false;
   try {
-    const customerInfo = await Purchases.restorePurchases();
-    const pro = customerInfo?.entitlements?.active?.[ENTITLEMENT_ID];
-    return !!(pro && pro.isActive);
+    const info = await Purchases.restorePurchases();
+    return info?.entitlements?.active?.['pro'] != null;
   } catch (e) {
     console.warn('[QuickWit Purchases] restorePurchases failed:', e?.message);
+    return false;
+  }
+}
+
+export async function logInUser(userId) {
+  if (!configured) return false;
+  const Purchases = getPurchasesModule();
+  if (!Purchases) return false;
+  try {
+    await Purchases.logIn(String(userId));
+    return true;
+  } catch (_e) {
+    return false;
+  }
+}
+
+export async function logOutUser() {
+  if (!configured) return false;
+  const Purchases = getPurchasesModule();
+  if (!Purchases) return false;
+  try {
+    await Purchases.logOut();
+    return true;
+  } catch (_e) {
     return false;
   }
 }

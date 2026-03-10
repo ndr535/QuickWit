@@ -359,6 +359,20 @@ export async function speakText(text) {
   }
 }
 
+/**
+ * Request microphone permission up-front (before session machinery starts).
+ * Returns { granted, canAskAgain } so callers can decide whether to show
+ * "open settings" or a re-request button.
+ */
+export async function requestMicPermission() {
+  try {
+    const result = await Audio.requestPermissionsAsync();
+    return { granted: !!result.granted, canAskAgain: result.canAskAgain !== false };
+  } catch (e) {
+    return { granted: false, canAskAgain: false };
+  }
+}
+
 export async function getRecordingMetering() {
   if (!currentRecording) return -160;
   try {

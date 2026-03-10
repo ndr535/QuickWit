@@ -1,15 +1,13 @@
-// Load .env so process.env has EXPO_PUBLIC_* when this file is evaluated
-const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '.env') });
-
 module.exports = {
   expo: {
     name: 'QuickWit',
     slug: 'QuickWit',
+    scheme: 'quickwit',
     version: '1.0.0',
     orientation: 'portrait',
     icon: './assets/icon.png',
     userInterfaceStyle: 'light',
+    newArchEnabled: false,
     splash: {
       image: './assets/splash-icon.png',
       resizeMode: 'contain',
@@ -18,7 +16,7 @@ module.exports = {
     ios: {
       supportsTablet: false,
       bundleIdentifier: 'com.blueribbon.quickwit',
-      buildNumber: '6',
+      buildNumber: '10',
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
         // Prevents iPad split-screen / slide-over (same effect as requiresFullScreen).
@@ -40,7 +38,6 @@ module.exports = {
       'expo-asset',
       'expo-router',
       'expo-av',
-      // react-native-purchases has no config plugin; do not list it here.
     ],
     
     extra: {
