@@ -14,7 +14,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { getVoiceEnabled, setVoiceEnabled, getDifficulty, setDifficulty, DIFFICULTY_VALUES } from '../services/settings';
-import { checkSubscriptionStatus, restorePurchases } from '../services/purchases';
+import { checkSubscriptionStatus, restorePurchases, initializePurchases } from '../services/purchases';
 import { supabase } from '../services/supabase';
 import { useAuth } from './context/AuthContext';
 import GradientBackground from '../components/GradientBackground';
@@ -41,7 +41,7 @@ const DIFFICULTY_DESCRIPTIONS = {
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { signOut } = useAuth();
+  const { signOut, user } = useAuth();
   const [voiceOn, setVoiceOn] = useState(true);
   const [difficulty, setDifficultyState] = useState('everyday');
   const [subStatus, setSubStatus] = useState('loading'); // 'loading' | 'pro' | 'free' | 'error'
@@ -100,6 +100,7 @@ export default function SettingsScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setRestoring(true);
     try {
+      await initializePurchases(user?.id);
       const hasPro = await restorePurchases();
       setSubStatus(hasPro ? 'pro' : 'free');
       if (hasPro) router.back();
@@ -108,7 +109,7 @@ export default function SettingsScreen() {
     } finally {
       setRestoring(false);
     }
-  }, [router]);
+  }, [router, user]);
 
   const handleLogout = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
