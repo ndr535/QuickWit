@@ -143,3 +143,4 @@ vite.config.ts.timestamp-*
 *.zip
 .DS_Store
 Crash Logs/
+*.p8
