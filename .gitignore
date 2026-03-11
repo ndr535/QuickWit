@@ -144,3 +144,5 @@ vite.config.ts.timestamp-*
 .DS_Store
 Crash Logs/
 *.p8
+*.pem
+*.key
