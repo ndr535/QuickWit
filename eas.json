@@ -1,10 +1,11 @@
 {
   "cli": {
-    "appVersionSource": "local"
+    "appVersionSource": "remote"
   },
   "build": {
     "production": {
       "environment": "production",
+      "autoIncrement": true,
       "ios": {
         "simulator": false
       }
