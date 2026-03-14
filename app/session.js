@@ -40,7 +40,7 @@ const COLORS = {
 
 const ROUNDS_BY_EXERCISE = { 'quick-draw': 5, heckler: 3, 'speed-rounds': 5, 'hot-take': 5, reframe: 3 };
 const TRANSCRIPT_PREVIEW_MS = 2500;
-// Temporary: raised from 6 to 30 for testing; set back to 6 before App Store submission.
+// Temporary: lowered from 6 to 2 for testing.
 const FREE_SESSION_LIMIT = 6;
 
 function getTotalRounds(type) {
