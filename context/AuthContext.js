@@ -1,23 +1,19 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase } from '../../services/supabase';
-
-const GUEST_KEY = 'quickwit_guest';
+import { supabase } from '../services/supabase';
 
 const AuthContext = createContext({
   initialAuthChecked: false,
   user: null,
-  isGuest: false,
+  sessionTokenReady: false,
   setUser: () => {},
-  setGuest: () => {},
   signOut: () => {},
 });
 
 export function AuthProvider({ children }) {
   const [initialAuthChecked, setInitialAuthChecked] = useState(false);
   const [user, setUserState] = useState(null);
-  const [isGuest, setIsGuest] = useState(false);
+  const [sessionTokenReady, setSessionTokenReady] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -35,19 +31,17 @@ export function AuthProvider({ children }) {
         const { data } = await Promise.race([sessionPromise, timeoutPromise]);
         if (cancelled) return;
         const session = data?.session;
-        if (session?.user) {
+        if (session?.user && session?.access_token) {
           setUserState(session.user);
-          setIsGuest(false);
-          await AsyncStorage.removeItem(GUEST_KEY);
+          setSessionTokenReady(true);
         } else {
-          const guest = await AsyncStorage.getItem(GUEST_KEY);
           setUserState(null);
-          setIsGuest(guest === 'true');
+          setSessionTokenReady(false);
         }
       } catch (e) {
         if (!cancelled) {
           setUserState(null);
-          setIsGuest(false);
+          setSessionTokenReady(false);
         }
       } finally {
         if (!cancelled) setInitialAuthChecked(true);
@@ -58,12 +52,12 @@ export function AuthProvider({ children }) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (cancelled) return;
-      if (session?.user) {
+      if (session?.user && session?.access_token) {
         setUserState(session.user);
-        setIsGuest(false);
-        AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
+        setSessionTokenReady(true);
       } else {
         setUserState(null);
+        setSessionTokenReady(false);
       }
     });
 
@@ -75,29 +69,22 @@ export function AuthProvider({ children }) {
 
   const setUser = (u) => {
     setUserState(u);
-    setIsGuest(false);
-    AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
-  };
-
-  const setGuest = async () => {
-    await AsyncStorage.setItem(GUEST_KEY, 'true');
-    setUserState(null);
-    setIsGuest(true);
+    // Do not set sessionTokenReady here. It is only set when we have a confirmed
+    // session with access_token (restoreSession or onAuthStateChange). After
+    // signIn/signUp, onAuthStateChange will fire and set sessionTokenReady(true).
   };
 
   const signOut = async () => {
     await supabase.auth.signOut();
-    await AsyncStorage.removeItem(GUEST_KEY);
     setUserState(null);
-    setIsGuest(false);
+    setSessionTokenReady(false);
   };
 
   const value = {
     initialAuthChecked,
     user,
-    isGuest,
+    sessionTokenReady,
     setUser,
-    setGuest,
     signOut,
   };
 

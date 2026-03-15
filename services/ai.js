@@ -1,5 +1,5 @@
 import { getDifficulty } from './settings';
-import { supabase } from './supabase';
+import { invokeEdgeFunctionWithAuth } from './supabase';
 
 function isSupabaseUnavailableError(error) {
   if (!error) return false;
@@ -26,7 +26,7 @@ export async function generatePrompt(exerciseType, difficulty, persona) {
   }
 
   try {
-    const { data, error } = await supabase.functions.invoke('ai-proxy', {
+    const data = await invokeEdgeFunctionWithAuth('ai-proxy', {
       body: {
         action: 'generatePrompt',
         exerciseType,
@@ -35,8 +35,8 @@ export async function generatePrompt(exerciseType, difficulty, persona) {
       },
     });
 
-    if (error || !data || !data.ok || !data.data || typeof data.data.prompt !== 'string') {
-      throw error || new Error('Invalid ai-proxy generatePrompt response');
+    if (!data || !data.ok || !data.data || typeof data.data.prompt !== 'string') {
+      throw new Error('Invalid ai-proxy generatePrompt response');
     }
 
     return data.data.prompt.trim();
@@ -80,7 +80,7 @@ export async function evaluateResponse(exerciseType, prompt, userResponse) {
   };
 
   try {
-    const { data, error } = await supabase.functions.invoke('ai-proxy', {
+    const data = await invokeEdgeFunctionWithAuth('ai-proxy', {
       body: {
         action: 'evaluateResponse',
         exerciseType: normalizedType || 'unknown',
@@ -89,8 +89,8 @@ export async function evaluateResponse(exerciseType, prompt, userResponse) {
       },
     });
 
-    if (error || !data || !data.ok || !data.data) {
-      throw error || new Error('Invalid ai-proxy evaluateResponse response');
+    if (!data || !data.ok || !data.data) {
+      throw new Error('Invalid ai-proxy evaluateResponse response');
     }
 
     const parsed = data.data;
@@ -134,15 +134,15 @@ export async function generateYesAndResponse(conversationHistory) {
   try {
     const historyArray = Array.isArray(conversationHistory) ? conversationHistory : [];
 
-    const { data, error } = await supabase.functions.invoke('ai-proxy', {
+    const data = await invokeEdgeFunctionWithAuth('ai-proxy', {
       body: {
         action: 'yesAndResponse',
         conversationHistory: historyArray,
       },
     });
 
-    if (error || !data || !data.ok || !data.data || typeof data.data.response !== 'string') {
-      throw error || new Error('Invalid ai-proxy yesAndResponse response');
+    if (!data || !data.ok || !data.data || typeof data.data.response !== 'string') {
+      throw new Error('Invalid ai-proxy yesAndResponse response');
     }
 
     return data.data.response.trim();
@@ -167,7 +167,7 @@ export async function generateYesAndResponse(conversationHistory) {
  */
 export async function generateExampleResponse(exerciseType, prompt) {
   try {
-    const { data, error } = await supabase.functions.invoke('ai-proxy', {
+    const data = await invokeEdgeFunctionWithAuth('ai-proxy', {
       body: {
         action: 'generateExampleResponse',
         exerciseType: exerciseType || 'unknown',
@@ -175,8 +175,8 @@ export async function generateExampleResponse(exerciseType, prompt) {
       },
     });
 
-    if (error || !data || !data.ok || !data.data || typeof data.data.example !== 'string') {
-      throw error || new Error('Invalid generateExampleResponse response');
+    if (!data || !data.ok || !data.data || typeof data.data.example !== 'string') {
+      throw new Error('Invalid generateExampleResponse response');
     }
 
     return data.data.example.trim();
@@ -214,15 +214,15 @@ export async function generateSpeedRoundsQuestions() {
   const difficulty = await getDifficulty();
 
   try {
-    const { data, error } = await supabase.functions.invoke('ai-proxy', {
+    const data = await invokeEdgeFunctionWithAuth('ai-proxy', {
       body: {
         action: 'generateSpeedRoundsQuestions',
         difficulty,
       },
     });
 
-    if (error || !data || !data.ok || !data.data || !Array.isArray(data.data.questions)) {
-      throw error || new Error('Invalid generateSpeedRoundsQuestions response');
+    if (!data || !data.ok || !data.data || !Array.isArray(data.data.questions)) {
+      throw new Error('Invalid generateSpeedRoundsQuestions response');
     }
 
     return data.data.questions.map((q) => String(q).trim());
@@ -242,15 +242,15 @@ export async function generateSpeedRoundsQuestions() {
  */
 export async function generateHecklerScenario(options = {}) {
   try {
-    const { data, error } = await supabase.functions.invoke('ai-proxy', {
+    const data = await invokeEdgeFunctionWithAuth('ai-proxy', {
       body: {
         action: 'generateHecklerScenario',
         usedScenarios: options.usedScenarios || [],
       },
     });
 
-    if (error || !data || !data.ok || !data.data) {
-      throw error || new Error('Invalid generateHecklerScenario response');
+    if (!data || !data.ok || !data.data) {
+      throw new Error('Invalid generateHecklerScenario response');
     }
 
     const scenario = (data.data.scenario && String(data.data.scenario).trim()) || HECKLER_FALLBACK.scenario;

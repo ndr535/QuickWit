@@ -2,7 +2,7 @@ import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Speech from 'expo-speech';
 import Constants from 'expo-constants';
-import { supabase } from './supabase';
+import { invokeEdgeFunctionWithAuth } from './supabase';
 
 /** Optional ElevenLabs voiceId for TTS (passed to Edge Function; server can use its default if unset). */
 function getDefaultVoiceId() {
@@ -106,23 +106,22 @@ export async function startRecording() {
 /** Call speech-to-text Edge Function with base64 audio; returns transcript or empty string on failure. */
 async function transcribeViaEdgeFunction(audioBase64, format) {
   try {
-    const { data, error } = await supabase.functions.invoke('speech-to-text', {
+    const data = await invokeEdgeFunctionWithAuth('speech-to-text', {
       body: { audio: audioBase64, format: format || 'm4a' },
     });
 
-    if (error) {
-      console.warn('[QuickWit Speech] speech-to-text Edge Function error:', error.message);
-      return '';
-    }
-
     if (!data || !data.ok || typeof data.transcript !== 'string') {
+      console.log('[EdgeCall] speech-to-text transcript_returned=no');
       console.warn('[QuickWit Speech] speech-to-text invalid response:', data);
       return '';
     }
 
-    return (data.transcript || '').trim();
+    const transcript = (data.transcript || '').trim();
+    console.log('[EdgeCall] speech-to-text transcript_returned=yes len=' + transcript.length);
+    return transcript;
   } catch (err) {
-    console.error('[QuickWit Speech] speech-to-text failed:', err);
+    console.log('[EdgeCall] speech-to-text transcript_returned=no');
+    console.warn('[QuickWit Speech] speech-to-text failed:', err?.message || err);
     return '';
   }
 }
@@ -320,9 +319,9 @@ export async function speakText(text) {
 
     const voiceId = getDefaultVoiceId();
 
-    let result;
+    let data;
     try {
-      result = await supabase.functions.invoke('text-to-speech', {
+      data = await invokeEdgeFunctionWithAuth('text-to-speech', {
         body: { text: trimmed, voiceId: voiceId || undefined },
       });
     } catch (invokeErr) {
@@ -334,10 +333,9 @@ export async function speakText(text) {
 
     if (controller.signal.aborted) return;
 
-    const { data, error } = result;
-    if (error || !data?.ok || !data?.audioBase64) {
+    if (!data?.ok || !data?.audioBase64) {
       if (!controller.signal.aborted) {
-        console.warn('[QuickWit Speech] text-to-speech Edge Function failed, using device TTS:', error?.message || 'no audio');
+        console.warn('[QuickWit Speech] text-to-speech Edge Function failed, using device TTS: no audio');
         await speakWithDeviceTTS(trimmed);
       }
       return;

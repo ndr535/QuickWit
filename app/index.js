@@ -15,7 +15,7 @@ import * as Haptics from 'expo-haptics';
 import { getProgress, clearPendingCelebration, STREAK_MILESTONES } from '../services/progress';
 import ConfettiOverlay from '../components/ConfettiOverlay';
 import GradientBackground from '../components/GradientBackground';
-import { useAuth } from './context/AuthContext';
+import { useAuth } from '../context/AuthContext';
 
 const COLORS = {
   background: '#1A1A2E',
@@ -124,7 +124,7 @@ const EXERCISES = [
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { initialAuthChecked, user, isGuest } = useAuth();
+  const { initialAuthChecked, user } = useAuth();
   const [streak, setStreak] = useState(0);
   const [totalSessions, setTotalSessions] = useState(0);
   const [bestScores, setBestScores] = useState({});
@@ -133,13 +133,13 @@ export default function HomeScreen() {
   const [showConfetti, setShowConfetti] = useState(false);
   const [sessionLaunchInProgress, setSessionLaunchInProgress] = useState(false);
 
-  // Redirect to login if not signed in and not guest
+  // Redirect to login if not signed in
   React.useEffect(() => {
     if (!initialAuthChecked) return;
-    if (!user && !isGuest) {
+    if (!user) {
       router.replace('/login');
     }
-  }, [initialAuthChecked, user, isGuest, router]);
+  }, [initialAuthChecked, user, router]);
 
   useFocusEffect(
     useCallback(() => {
@@ -203,7 +203,7 @@ export default function HomeScreen() {
   }, []);
 
   // Show nothing while checking auth or redirecting to login
-  if (!initialAuthChecked || (!user && !isGuest)) {
+  if (!initialAuthChecked || !user) {
     return (
       <GradientBackground>
         <View style={styles.container}>

@@ -1,9 +1,56 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase } from './supabase';
 
-const STORAGE_KEY = 'quickwit_progress';
-const SESSION_COUNT_KEY = 'quickwit_session_count';
+const KEY_PREFIX = 'quickwit_';
+const LEGACY_PROGRESS_KEY = 'quickwit_progress';
+const LEGACY_SESSION_COUNT_KEY = 'quickwit_session_count';
 const STREAK_MILESTONES = [3, 7, 14, 30];
 const MAX_LAST_SESSIONS = 10;
+
+/** One-time migration: copy legacy global keys to user-scoped keys if scoped keys are missing. */
+async function migrateLegacyProgressToScoped(keys) {
+  if (keys.scopeId === 'guest') return;
+  try {
+    const existingProgress = await AsyncStorage.getItem(keys.progressKey);
+    if (!existingProgress || String(existingProgress).trim() === '') {
+      const legacy = await AsyncStorage.getItem(LEGACY_PROGRESS_KEY);
+      if (legacy && String(legacy).trim() !== '') {
+        await AsyncStorage.setItem(keys.progressKey, legacy);
+        await AsyncStorage.removeItem(LEGACY_PROGRESS_KEY);
+      }
+    }
+    const existingCount = await AsyncStorage.getItem(keys.sessionCountKey);
+    if (existingCount == null || String(existingCount) === '') {
+      const legacyCount = await AsyncStorage.getItem(LEGACY_SESSION_COUNT_KEY);
+      if (legacyCount != null && String(legacyCount) !== '') {
+        await AsyncStorage.setItem(keys.sessionCountKey, legacyCount);
+        await AsyncStorage.removeItem(LEGACY_SESSION_COUNT_KEY);
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+}
+
+/** Resolve storage scope from current auth (user id or 'guest'). */
+async function getStorageKeys() {
+  try {
+    const { data } = await supabase.auth.getSession();
+    const id = data?.session?.user?.id;
+    const scope = id ? String(id) : 'guest';
+    return {
+      progressKey: KEY_PREFIX + 'progress_' + scope,
+      sessionCountKey: KEY_PREFIX + 'session_count_' + scope,
+      scopeId: scope,
+    };
+  } catch (e) {
+    return {
+      progressKey: KEY_PREFIX + 'progress_guest',
+      sessionCountKey: KEY_PREFIX + 'session_count_guest',
+      scopeId: 'guest',
+    };
+  }
+}
 
 function todayString() {
   const d = new Date();
@@ -27,7 +74,9 @@ const DEFAULT = {
 
 async function load() {
   try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEY);
+    const keys = await getStorageKeys();
+    await migrateLegacyProgressToScoped(keys);
+    const raw = await AsyncStorage.getItem(keys.progressKey);
     if (!raw) return { ...DEFAULT };
     const data = JSON.parse(raw);
     return {
@@ -43,7 +92,8 @@ async function load() {
 
 async function save(data) {
   try {
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    const { progressKey } = await getStorageKeys();
+    await AsyncStorage.setItem(progressKey, JSON.stringify(data));
   } catch (e) {
     // ignore
   }
@@ -152,7 +202,9 @@ export async function clearPendingCelebration() {
  */
 export async function getSessionCount() {
   try {
-    const raw = await AsyncStorage.getItem(SESSION_COUNT_KEY);
+    const keys = await getStorageKeys();
+    await migrateLegacyProgressToScoped(keys);
+    const raw = await AsyncStorage.getItem(keys.sessionCountKey);
     if (raw == null) return 0;
     const n = parseInt(raw, 10);
     return Number.isFinite(n) && n >= 0 ? n : 0;
@@ -169,11 +221,30 @@ export async function incrementSessionCount() {
   try {
     const current = await getSessionCount();
     const next = current + 1;
-    await AsyncStorage.setItem(SESSION_COUNT_KEY, String(next));
+    const { sessionCountKey } = await getStorageKeys();
+    await AsyncStorage.setItem(sessionCountKey, String(next));
     return next;
   } catch (e) {
     return 0;
   }
 }
 
-export { STREAK_MILESTONES };
+/** Remove all progress/storage keys for a user (e.g. after account deletion). */
+export async function clearProgressForUserId(userId) {
+  if (!userId) return;
+  const scope = String(userId);
+  const keys = [
+    KEY_PREFIX + 'progress_' + scope,
+    KEY_PREFIX + 'session_count_' + scope,
+    KEY_PREFIX + 'streak_' + scope,
+    KEY_PREFIX + 'best_streak_' + scope,
+    KEY_PREFIX + 'last_session_date_' + scope,
+  ];
+  try {
+    await AsyncStorage.multiRemove(keys);
+  } catch (e) {
+    // ignore
+  }
+}
+
+export { getStorageKeys, STREAK_MILESTONES };

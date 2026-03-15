@@ -15,7 +15,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '../services/supabase';
-import { useAuth } from './context/AuthContext';
+import { useAuth } from '../context/AuthContext';
 import GradientBackground from '../components/GradientBackground';
 
 const COLORS = {
@@ -38,7 +38,7 @@ function friendlyAuthError(err) {
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { setUser, setGuest } = useAuth();
+  const { setUser } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -69,13 +69,6 @@ export default function LoginScreen() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleContinueAsGuest = async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setError('');
-    await setGuest();
-    router.replace('/');
   };
 
   const handleGoToSignUp = () => {
@@ -115,6 +108,8 @@ export default function LoginScreen() {
                 autoCapitalize="none"
                 autoCorrect={false}
                 keyboardType="email-address"
+                textContentType="emailAddress"
+                autoComplete={Platform.OS === 'android' ? 'email' : 'off'}
                 editable={!loading}
               />
               <TextInput
@@ -124,6 +119,10 @@ export default function LoginScreen() {
                 value={password}
                 onChangeText={(t) => { setPassword(t); setError(''); }}
                 secureTextEntry
+                textContentType="password"
+                autoComplete={Platform.OS === 'android' ? 'password' : 'off'}
+                autoCapitalize="none"
+                autoCorrect={false}
                 editable={!loading}
               />
 
@@ -151,20 +150,6 @@ export default function LoginScreen() {
               >
                 <Text style={styles.linkText}>Create Account</Text>
                 <Ionicons name="arrow-forward" size={16} color={COLORS.accent} />
-              </Pressable>
-
-              <View style={styles.guestRow}>
-                <View style={styles.guestDivider} />
-                <Text style={styles.guestLabel}>or</Text>
-                <View style={styles.guestDivider} />
-              </View>
-
-              <Pressable
-                onPress={handleContinueAsGuest}
-                disabled={loading}
-                style={({ pressed }) => [styles.guestButton, pressed && styles.guestButtonPressed]}
-              >
-                <Text style={styles.guestButtonText}>Continue as Guest</Text>
               </Pressable>
             </View>
           </ScrollView>
@@ -254,39 +239,6 @@ const styles = StyleSheet.create({
   linkPressed: { opacity: 0.8 },
   linkText: {
     color: COLORS.accent,
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  guestRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  guestDivider: {
-    flex: 1,
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-  },
-  guestLabel: {
-    color: COLORS.muted,
-    fontSize: 13,
-    marginHorizontal: 14,
-  },
-  guestButton: {
-    backgroundColor: 'transparent',
-    borderWidth: 1.5,
-    borderColor: COLORS.muted,
-    borderRadius: 999,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  guestButtonPressed: {
-    opacity: 0.85,
-    borderColor: COLORS.text,
-  },
-  guestButtonText: {
-    color: COLORS.text,
     fontSize: 16,
     fontWeight: '500',
   },

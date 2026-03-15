@@ -14,9 +14,10 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { getVoiceEnabled, setVoiceEnabled, getDifficulty, setDifficulty, DIFFICULTY_VALUES } from '../services/settings';
+import { clearProgressForUserId } from '../services/progress';
 import { checkSubscriptionStatus, restorePurchases, initializePurchases } from '../services/purchases';
 import { supabase } from '../services/supabase';
-import { useAuth } from './context/AuthContext';
+import { useAuth } from '../context/AuthContext';
 import GradientBackground from '../components/GradientBackground';
 
 const COLORS = {
@@ -163,6 +164,8 @@ export default function SettingsScreen() {
                 const body = await res.json().catch(() => ({}));
                 throw new Error(body?.error?.message || 'Deletion failed');
               }
+              const userId = sessionData?.session?.user?.id;
+              if (userId) await clearProgressForUserId(userId);
               await signOut();
               router.replace('/login');
             } catch (err) {

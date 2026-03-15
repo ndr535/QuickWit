@@ -15,7 +15,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '../services/supabase';
-import { useAuth } from './context/AuthContext';
+import { useAuth } from '../context/AuthContext';
 import GradientBackground from '../components/GradientBackground';
 
 const COLORS = {
@@ -120,6 +120,8 @@ export default function SignupScreen() {
                 autoCapitalize="none"
                 autoCorrect={false}
                 keyboardType="email-address"
+                textContentType="emailAddress"
+                autoComplete={Platform.OS === 'android' ? 'email' : 'off'}
                 editable={!loading}
               />
               <TextInput
@@ -129,6 +131,11 @@ export default function SignupScreen() {
                 value={password}
                 onChangeText={(t) => { setPassword(t); setError(''); }}
                 secureTextEntry
+                textContentType="newPassword"
+                autoComplete={Platform.OS === 'android' ? 'new-password' : 'off'}
+                autoCapitalize="none"
+                autoCorrect={false}
+                passwordRules={Platform.OS === 'ios' ? 'minlength: 6' : undefined}
                 editable={!loading}
               />
               <TextInput
@@ -138,6 +145,10 @@ export default function SignupScreen() {
                 value={confirmPassword}
                 onChangeText={(t) => { setConfirmPassword(t); setError(''); }}
                 secureTextEntry
+                textContentType="newPassword"
+                autoComplete={Platform.OS === 'android' ? 'new-password' : 'off'}
+                autoCapitalize="none"
+                autoCorrect={false}
                 editable={!loading}
               />
 

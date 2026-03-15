@@ -28,6 +28,7 @@ import {
 import { getVoiceEnabled } from '../services/settings';
 import { updateProgress, getSessionCount, incrementSessionCount } from '../services/progress';
 import { checkSubscriptionStatus } from '../services/purchases';
+import { useAuth } from '../context/AuthContext';
 import GradientBackground from '../components/GradientBackground';
 
 const COLORS = {
@@ -83,6 +84,7 @@ function getPlaceholderPrompt(type, round) {
 export default function SessionScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const { user, sessionTokenReady } = useAuth();
 
   const exerciseTypeParam = params.exerciseType || params.type;
 
@@ -418,8 +420,10 @@ export default function SessionScreen() {
             combinedPrompt,
             combinedRecoveries,
           );
+          console.log('[EdgeCall] evaluateResponse coachFeedback_returned=' + (evaluation?.coachFeedback ? 'yes' : 'no') + ' len=' + (evaluation?.coachFeedback?.length ?? 0));
           if (!isScreenActiveRef.current) return;
           await updateProgress({ exerciseType: 'heckler', overallScore: evaluation.overallScore });
+          console.log('[SessionAdvance] results exerciseType=heckler round=' + currentRound);
           router.replace({
             pathname: '/results',
             params: {
@@ -473,18 +477,24 @@ export default function SessionScreen() {
     const currentQ = isSpeedRounds
       ? (speedQuestionsRef.current[currentRound - 1] || promptText)
       : promptText;
+    const promptForPayload = (currentQ && String(currentQ).trim())
+      ? String(currentQ).trim()
+      : getPlaceholderPrompt(exerciseTypeRef.current || 'unknown', currentRound);
 
     const updatedResponses = [
       ...allResponsesRef.current,
-      { prompt: currentQ, response: transcript || '(no response)' },
+      { prompt: promptForPayload, response: transcript || '(no response)' },
     ];
     allResponsesRef.current = updatedResponses;
     if (isScreenActiveRef.current) setAllResponses(updatedResponses);
 
     if (currentRound >= totalRoundsRef.current) {
-      // Evaluate all responses together
+      // Evaluate all responses together. Ensure every Q has scenario context so coach feedback is grounded.
       const combinedPrompt = updatedResponses
-        .map((r, i) => `Q${i + 1}: ${r.prompt}\nA${i + 1}: ${r.response}`)
+        .map((r, i) => {
+          const q = (r.prompt && String(r.prompt).trim()) ? r.prompt : getPlaceholderPrompt(exerciseTypeRef.current || 'unknown', i + 1);
+          return `Q${i + 1}: ${q}\nA${i + 1}: ${r.response}`;
+        })
         .join('\n\n');
       const combinedResponse = updatedResponses
         .map((r, i) => `${i + 1}. ${r.response}`)
@@ -497,8 +507,10 @@ export default function SessionScreen() {
           combinedPrompt,
           combinedResponse,
         );
+        console.log('[EdgeCall] evaluateResponse coachFeedback_returned=' + (evaluation?.coachFeedback ? 'yes' : 'no') + ' len=' + (evaluation?.coachFeedback?.length ?? 0));
         if (!isScreenActiveRef.current) return;
         await updateProgress({ exerciseType: exerciseTypeRef.current, overallScore: evaluation.overallScore });
+        console.log('[SessionAdvance] results exerciseType=' + exerciseTypeRef.current + ' round=' + currentRound);
         router.replace({
           pathname: '/results',
           params: {
@@ -536,6 +548,7 @@ export default function SessionScreen() {
 
   const startNextRound = async (newRound) => {
     if (!isScreenActiveRef.current) return;
+    console.log('[SessionAdvance] before round=' + roundRef.current + ' after round=' + newRound + ' exerciseType=' + (exerciseTypeParam || 'unknown'));
     if (isSpeedRounds) {
       const nextQ = speedQuestionsRef.current[newRound - 1] || getPlaceholderPrompt('speed-rounds', newRound);
       setPromptText(nextQ);
@@ -633,6 +646,7 @@ export default function SessionScreen() {
 
   const loadPrompt = async () => {
     if (!isScreenActiveRef.current) return;
+    console.log('[SessionAdvance] loadPrompt round=1 exerciseType=' + (exerciseTypeParam || 'unknown'));
     setPromptError(null);
     setIsPromptLoading(true);
     setMicPermissionDenied(false);
@@ -934,8 +948,10 @@ export default function SessionScreen() {
             combinedPrompt,
             combinedResponse,
           );
+          console.log('[EdgeCall] evaluateResponse coachFeedback_returned=' + (evaluation?.coachFeedback ? 'yes' : 'no') + ' len=' + (evaluation?.coachFeedback?.length ?? 0));
           clearPreviewAfter();
           await updateProgress({ exerciseType: 'reframe', overallScore: evaluation.overallScore });
+          console.log('[SessionAdvance] results exerciseType=reframe round=' + currentRound);
           router.replace({
             pathname: '/results',
             params: {
@@ -978,8 +994,10 @@ export default function SessionScreen() {
     setIsSubmitting(true);
     try {
       const evaluation = await evaluateResponse(exerciseTypeParam || 'unknown', currentPrompt, transcript);
+      console.log('[EdgeCall] evaluateResponse coachFeedback_returned=' + (evaluation?.coachFeedback ? 'yes' : 'no') + ' len=' + (evaluation?.coachFeedback?.length ?? 0));
       clearPreviewAfter();
       await updateProgress({ exerciseType: exerciseTypeParam || 'unknown', overallScore: evaluation.overallScore });
+      console.log('[SessionAdvance] results exerciseType=' + (exerciseTypeParam || 'unknown') + ' round=' + roundRef.current);
       router.replace({
         pathname: '/results',
         params: {
@@ -1030,8 +1048,10 @@ export default function SessionScreen() {
             combinedPrompt,
             combinedResponse,
           );
+          console.log('[EdgeCall] evaluateResponse coachFeedback_returned=' + (evaluation?.coachFeedback ? 'yes' : 'no') + ' len=' + (evaluation?.coachFeedback?.length ?? 0));
           setUserInput('');
           await updateProgress({ exerciseType: 'reframe', overallScore: evaluation.overallScore });
+          console.log('[SessionAdvance] results exerciseType=reframe round=' + currentRound);
           router.replace({
             pathname: '/results',
             params: {
@@ -1073,8 +1093,10 @@ export default function SessionScreen() {
 
     try {
       const evaluation = await evaluateResponse(exerciseTypeParam || 'unknown', currentPrompt, responseText);
+      console.log('[EdgeCall] evaluateResponse coachFeedback_returned=' + (evaluation?.coachFeedback ? 'yes' : 'no') + ' len=' + (evaluation?.coachFeedback?.length ?? 0));
       setUserInput('');
       await updateProgress({ exerciseType: exerciseTypeParam || 'unknown', overallScore: evaluation.overallScore });
+      console.log('[SessionAdvance] results exerciseType=' + (exerciseTypeParam || 'unknown') + ' round=' + roundRef.current);
       router.replace({
         pathname: '/results',
         params: {
@@ -1113,6 +1135,38 @@ export default function SessionScreen() {
   // ─── JSX ─────────────────────────────────────────────────────────────────────
 
   const showRoundCount = isHeckler || isSpeedRounds || isHotTake || isReframe;
+
+  // Protected edge functions require a valid session. Unauthenticated users see sign-in prompt.
+  if (!user) {
+    return (
+      <GradientBackground>
+        <View style={styles.container}>
+          <View style={styles.gateLoadingWrap}>
+            <Text style={styles.gateLoadingText}>Sign in to play</Text>
+            <Text style={styles.authGuardSubtext}>Sessions use your account to run coaching and voice.</Text>
+            <Pressable onPress={() => router.replace('/')} style={styles.authGuardBtn}>
+              <Text style={styles.authGuardBtnText}>Go to Home</Text>
+            </Pressable>
+            <Pressable onPress={() => router.replace('/login')} style={[styles.authGuardBtn, styles.authGuardBtnSecondary]}>
+              <Text style={styles.authGuardBtnTextSecondary}>Sign In</Text>
+            </Pressable>
+          </View>
+        </View>
+      </GradientBackground>
+    );
+  }
+  if (!sessionTokenReady) {
+    return (
+      <GradientBackground>
+        <View style={styles.container}>
+          <View style={styles.gateLoadingWrap}>
+            <ActivityIndicator size="large" color={COLORS.accent} />
+            <Text style={styles.gateLoadingText}>Loading…</Text>
+          </View>
+        </View>
+      </GradientBackground>
+    );
+  }
 
   if (gateState === 'checking' || gateState === 'paywall' || (gateState === 'allowed' && permissionState === 'checking')) {
     return (
@@ -1434,6 +1488,35 @@ const styles = StyleSheet.create({
   gateLoadingText: {
     color: COLORS.muted,
     fontSize: 15,
+  },
+  authGuardSubtext: {
+    color: COLORS.muted,
+    fontSize: 14,
+    textAlign: 'center',
+    marginHorizontal: 24,
+    marginBottom: 20,
+  },
+  authGuardBtn: {
+    backgroundColor: COLORS.accent,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 999,
+    marginTop: 8,
+  },
+  authGuardBtnText: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  authGuardBtnSecondary: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: COLORS.accent,
+  },
+  authGuardBtnTextSecondary: {
+    color: COLORS.accent,
+    fontSize: 16,
+    fontWeight: '600',
   },
   micBlockedWrap: {
     flex: 1,

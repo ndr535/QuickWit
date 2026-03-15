@@ -14,6 +14,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { generateExampleResponse } from '../services/ai';
+import { getStorageKeys } from '../services/progress';
 import GradientBackground from '../components/GradientBackground';
 
 const COLORS = {
@@ -24,9 +25,10 @@ const COLORS = {
   muted: '#A5B1C2',
 };
 
-const STREAK_KEY = 'quickwit_streak';
-const BEST_STREAK_KEY = 'quickwit_best_streak';
-const LAST_SESSION_DATE_KEY = 'quickwit_last_session_date';
+const KEY_PREFIX = 'quickwit_';
+const LEGACY_STREAK_KEY = 'quickwit_streak';
+const LEGACY_BEST_STREAK_KEY = 'quickwit_best_streak';
+const LEGACY_LAST_SESSION_DATE_KEY = 'quickwit_last_session_date';
 
 function getTodayDateString() {
   const d = new Date();
@@ -153,13 +155,45 @@ export default function ResultsScreen() {
 
     const loadStreaks = async () => {
       try {
+        const { scopeId } = await getStorageKeys();
+        const streakKey = KEY_PREFIX + 'streak_' + scopeId;
+        const bestStreakKey = KEY_PREFIX + 'best_streak_' + scopeId;
+        const lastSessionDateKey = KEY_PREFIX + 'last_session_date_' + scopeId;
+
+        if (scopeId !== 'guest') {
+          try {
+            const [existingStreak, existingBest, existingLast] = await Promise.all([
+              AsyncStorage.getItem(streakKey),
+              AsyncStorage.getItem(bestStreakKey),
+              AsyncStorage.getItem(lastSessionDateKey),
+            ]);
+            const [legacyStreak, legacyBest, legacyLast] = await Promise.all([
+              AsyncStorage.getItem(LEGACY_STREAK_KEY),
+              AsyncStorage.getItem(LEGACY_BEST_STREAK_KEY),
+              AsyncStorage.getItem(LEGACY_LAST_SESSION_DATE_KEY),
+            ]);
+            if ((existingStreak == null || existingStreak === '') && legacyStreak != null && legacyStreak !== '') {
+              await AsyncStorage.setItem(streakKey, legacyStreak);
+              await AsyncStorage.removeItem(LEGACY_STREAK_KEY);
+            }
+            if ((existingBest == null || existingBest === '') && legacyBest != null && legacyBest !== '') {
+              await AsyncStorage.setItem(bestStreakKey, legacyBest);
+              await AsyncStorage.removeItem(LEGACY_BEST_STREAK_KEY);
+            }
+            if ((existingLast == null || existingLast === '') && legacyLast != null && legacyLast !== '') {
+              await AsyncStorage.setItem(lastSessionDateKey, legacyLast);
+              await AsyncStorage.removeItem(LEGACY_LAST_SESSION_DATE_KEY);
+            }
+          } catch (_e) {}
+        }
+
         const today = getTodayDateString();
         const yesterday = getYesterdayDateString();
 
         const [currentRaw, bestRaw, lastDateRaw] = await Promise.all([
-          AsyncStorage.getItem(STREAK_KEY),
-          AsyncStorage.getItem(BEST_STREAK_KEY),
-          AsyncStorage.getItem(LAST_SESSION_DATE_KEY),
+          AsyncStorage.getItem(streakKey),
+          AsyncStorage.getItem(bestStreakKey),
+          AsyncStorage.getItem(lastSessionDateKey),
         ]);
 
         const current = currentRaw ? parseInt(currentRaw, 10) : 0;
@@ -185,13 +219,13 @@ export default function ResultsScreen() {
 
         setStreak(newStreak);
         setBestStreak(safeBest);
-        await AsyncStorage.setItem(LAST_SESSION_DATE_KEY, today);
-        await AsyncStorage.setItem(STREAK_KEY, String(newStreak));
+        await AsyncStorage.setItem(lastSessionDateKey, today);
+        await AsyncStorage.setItem(streakKey, String(newStreak));
 
         if (newStreak > safeBest) {
           setBestStreak(newStreak);
           setIsPersonalBest(true);
-          await AsyncStorage.setItem(BEST_STREAK_KEY, String(newStreak));
+          await AsyncStorage.setItem(bestStreakKey, String(newStreak));
         }
       } catch (e) {
         // ignore read/write errors
