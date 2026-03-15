@@ -3,7 +3,7 @@ module.exports = {
     name: 'QuickWit',
     slug: 'QuickWit',
     scheme: 'quickwit',
-    version: '1.0.0',
+    version: '1.0.1',
     orientation: 'portrait',
     icon: './assets/icon.png',
     userInterfaceStyle: 'light',
@@ -15,6 +15,7 @@ module.exports = {
     },
     ios: {
       supportsTablet: false,
+      buildNumber: '15',
       bundleIdentifier: 'com.blueribbon.quickwit',
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
